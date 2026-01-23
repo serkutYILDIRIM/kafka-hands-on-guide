@@ -1,0 +1,15 @@
+spring:
+  kafka:
+    bootstrap-servers: localhost:9093
+    producer:
+      acks: 1
+      retries: 1
+    consumer:
+      auto-offset-reset: latest
+
+logging:
+  level:
+    root: DEBUG
+    io.github.serkutyildirim.kafka: TRACE
+    org.apache.kafka: DEBUG
+    org.springframework.kafka: TRACE
