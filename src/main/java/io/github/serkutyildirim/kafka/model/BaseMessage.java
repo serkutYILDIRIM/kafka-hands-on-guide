@@ -3,7 +3,6 @@ package io.github.serkutyildirim.kafka.model;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
@@ -95,7 +94,6 @@ public abstract class BaseMessage {
      * Generated automatically using UUID version 4 (random).
      * Ensures global uniqueness across all services and Kafka partitions.
      */
-    @Builder.Default
     private UUID messageId = UUID.randomUUID();
 
     /**
@@ -103,7 +101,6 @@ public abstract class BaseMessage {
      * Uses {@link Instant} for timezone-agnostic time representation.
      * Set automatically to the current time when the message is created.
      */
-    @Builder.Default
     private Instant timestamp = Instant.now();
 
     /**
