@@ -80,12 +80,18 @@ import lombok.experimental.SuperBuilder;
 public class DemoNotification extends BaseMessage {
 
     /**
+     * Message type identifier for notification messages.
+     * Set to constant value to identify this message as a notification.
+     */
+    private final String messageType = "DEMO_NOTIFICATION";
+
+    /**
      * Recipient identifier.
      * Identifies the user or system that should receive this notification.
      * Must not be blank. Used as Kafka partition key to ensure ordering per recipient.
      */
     @NotBlank(message = "Recipient ID cannot be blank")
-    private String recipientId;
+    private final String recipientId;
 
     /**
      * Notification message content.
@@ -100,7 +106,7 @@ public class DemoNotification extends BaseMessage {
      * </ul>
      */
     @NotBlank(message = "Content cannot be blank")
-    private String content;
+    private final String content;
 
     /**
      * Notification delivery channel type.
@@ -117,7 +123,7 @@ public class DemoNotification extends BaseMessage {
      * @see NotificationType for detailed comparison
      */
     @NotNull(message = "Notification type cannot be null")
-    private NotificationType notificationType;
+    private final NotificationType notificationType;
 
     /**
      * Processing priority for this notification.
@@ -142,18 +148,5 @@ public class DemoNotification extends BaseMessage {
      * @see Priority for routing strategy details
      */
     @NotNull(message = "Priority cannot be null")
-    private Priority priority;
-
-    /**
-     * Default constructor initialization.
-     * Sets the messageType to identify this as a notification message.
-     */
-    public DemoNotification(String recipientId, String content, NotificationType notificationType, Priority priority) {
-        super();
-        this.recipientId = recipientId;
-        this.content = content;
-        this.notificationType = notificationType;
-        this.priority = priority;
-        this.setMessageType("DEMO_NOTIFICATION");
-    }
+    private final Priority priority;
 }

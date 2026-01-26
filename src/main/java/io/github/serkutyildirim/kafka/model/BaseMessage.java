@@ -94,19 +94,19 @@ public abstract class BaseMessage {
      * Generated automatically using UUID version 4 (random).
      * Ensures global uniqueness across all services and Kafka partitions.
      */
-    private UUID messageId = UUID.randomUUID();
+    private final UUID messageId = UUID.randomUUID();
 
     /**
      * Creation timestamp in UTC.
      * Uses {@link Instant} for timezone-agnostic time representation.
      * Set automatically to the current time when the message is created.
      */
-    private Instant timestamp = Instant.now();
+    private final Instant timestamp = Instant.now();
 
     /**
      * Type identifier for this message.
      * Set by subclasses to identify the concrete message type.
      * Used for routing, filtering, and consumer logic.
      */
-    private String messageType;
+    private final String messageType;
 }
