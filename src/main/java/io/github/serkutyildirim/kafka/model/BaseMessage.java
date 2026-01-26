@@ -75,7 +75,7 @@ import java.util.UUID;
  * @author Serkut Yıldırım
  */
 @Data
-@NoArgsConstructor
+@NoArgsConstructor(force = true)
 @AllArgsConstructor
 @SuperBuilder
 @JsonTypeInfo(
