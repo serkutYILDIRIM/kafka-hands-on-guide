@@ -82,12 +82,18 @@ import java.math.BigDecimal;
 public class DemoTransaction extends BaseMessage {
 
     /**
+     * Message type identifier for transaction messages.
+     * Set to constant value to identify this message as a transaction.
+     */
+    private final String messageType = "DEMO_TRANSACTION";
+
+    /**
      * Source account identifier.
      * Represents the account from which funds are transferred.
      * Must not be blank. Used as Kafka partition key to ensure ordering.
      */
     @NotBlank(message = "Source ID cannot be blank")
-    private String sourceId;
+    private final String sourceId;
 
     /**
      * Target account identifier.
@@ -95,7 +101,7 @@ public class DemoTransaction extends BaseMessage {
      * Must not be blank.
      */
     @NotBlank(message = "Target ID cannot be blank")
-    private String targetId;
+    private final String targetId;
 
     /**
      * Transaction amount.
@@ -113,7 +119,7 @@ public class DemoTransaction extends BaseMessage {
      */
     @NotNull(message = "Amount cannot be null")
     @Positive(message = "Amount must be positive")
-    private BigDecimal amount;
+    private final BigDecimal amount;
 
     /**
      * ISO 4217 currency code (e.g., USD, EUR, GBP, TRY).
@@ -125,7 +131,7 @@ public class DemoTransaction extends BaseMessage {
      */
     @NotBlank(message = "Currency cannot be blank")
     @Pattern(regexp = "^[A-Z]{3}$", message = "Currency must be a 3-letter ISO 4217 code (e.g., USD, EUR)")
-    private String currency;
+    private final String currency;
 
     /**
      * Processing status of the transaction.
@@ -141,28 +147,12 @@ public class DemoTransaction extends BaseMessage {
      * </ul>
      */
     @NotNull(message = "Status cannot be null")
-    private MessageStatus status;
+    private final MessageStatus status;
 
     /**
      * Optional human-readable description of the transaction.
      * Can contain additional context like order number, invoice reference, etc.
      * Not validated as it's optional and free-form.
      */
-    private String description;
-
-    /**
-     * Default constructor initialization.
-     * Sets the messageType to identify this as a transaction message.
-     */
-    public DemoTransaction(String sourceId, String targetId, BigDecimal amount, String currency,
-                          MessageStatus status, String description) {
-        super();
-        this.sourceId = sourceId;
-        this.targetId = targetId;
-        this.amount = amount;
-        this.currency = currency;
-        this.status = status;
-        this.description = description;
-        this.setMessageType("DEMO_TRANSACTION");
-    }
+    private final String description;
 }
