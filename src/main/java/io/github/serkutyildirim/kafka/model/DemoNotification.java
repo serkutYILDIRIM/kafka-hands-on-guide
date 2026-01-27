@@ -73,7 +73,7 @@ import lombok.experimental.SuperBuilder;
  * @author Serkut Yıldırım
  */
 @Data
-@NoArgsConstructor
+@NoArgsConstructor(force = true)
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 @SuperBuilder
