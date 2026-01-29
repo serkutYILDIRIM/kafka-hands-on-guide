@@ -75,7 +75,7 @@ import java.math.BigDecimal;
  * @author Serkut Yıldırım
  */
 @Data
-@NoArgsConstructor
+@NoArgsConstructor(force = true)
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 @SuperBuilder
