@@ -1,13 +1,11 @@
 package io.github.serkutyildirim.kafka.consumer;
 
 import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -37,10 +35,8 @@ public class BatchConsumer {
      * Consume messages in batches from notification topic
      * Processes multiple messages at once for better performance
      * 
-     * @param messages List of consumed messages
+     * @param records List of ConsumerRecord containing messages with metadata
      * @param acknowledgment The acknowledgment callback
-     * @param partitions List of partitions
-     * @param offsets List of offsets
      */
     @KafkaListener(
         topics = KafkaTopicConfig.DEMO_NOTIFICATIONS_TOPIC,
@@ -49,20 +45,19 @@ public class BatchConsumer {
         batch = "true"
     )
     public void consumeBatch(
-            @Payload List<Object> messages,
-            Acknowledgment acknowledgment,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) List<Integer> partitions,
-            @Header(KafkaHeaders.OFFSET) List<Long> offsets) {
-        
-        logger.info("[BatchConsumer] Received batch of {} messages", messages.size());
-        
+            List<ConsumerRecord<String, Object>> records,
+            Acknowledgment acknowledgment) {
+
+        logger.info("[BatchConsumer] Received batch of {} messages", records.size());
+
         try {
             // TODO: Add batch processing logic
-            for (int i = 0; i < messages.size(); i++) {
-                Object message = messages.get(i);
-                int partition = partitions.get(i);
-                long offset = offsets.get(i);
-                
+            for (int i = 0; i < records.size(); i++) {
+                ConsumerRecord<String, Object> record = records.get(i);
+                Object message = record.value();
+                int partition = record.partition();
+                long offset = record.offset();
+
                 logger.debug("[BatchConsumer] Processing message {} from partition {} at offset {}", 
                     i + 1, partition, offset);
                 
