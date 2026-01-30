@@ -61,7 +61,8 @@ public class BatchConsumer {
                 logger.debug("[BatchConsumer] Processing message {} from partition {} at offset {}", 
                     i + 1, partition, offset);
                 
-
+                // Process individual message
+                // processMessage(message);
             }
             
             // TODO: Perform batch operation (e.g., bulk database insert)
