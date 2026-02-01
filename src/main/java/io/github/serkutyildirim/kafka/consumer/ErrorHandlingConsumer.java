@@ -115,11 +115,12 @@ public class ErrorHandlingConsumer {
     private void processMessage(Object message) throws Exception {
         // TODO: Implement actual business logic
         logger.debug("Processing message: {}", message);
-        
+
         // Simulate processing that might fail
         // if (someCondition) {
         //     throw new RuntimeException("Processing failed");
         // }
+
     }
 
     /**
