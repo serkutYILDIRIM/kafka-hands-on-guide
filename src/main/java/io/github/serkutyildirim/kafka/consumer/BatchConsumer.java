@@ -65,7 +65,10 @@ public class BatchConsumer {
                 // processMessage(message);
             }
             
+            // TODO: Perform batch operation (e.g., bulk database insert)
+                 // bulkInsertToDatabase(messages);
 
+            // Acknowledge entire batch after successful processing
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
                 logger.info("[BatchConsumer] Batch acknowledged successfully");
