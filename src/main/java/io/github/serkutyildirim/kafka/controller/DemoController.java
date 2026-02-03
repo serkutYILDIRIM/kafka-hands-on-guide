@@ -47,6 +47,7 @@ public class DemoController {
     /**
      * Health check endpoint
      */
+
     @GetMapping("/health")
     public ResponseEntity<Map<String, String>> health() {
         Map<String, String> response = new HashMap<>();
