@@ -55,8 +55,21 @@ import java.util.UUID;
  * // - timestamp: current Instant (e.g., "2025-01-24T10:30:00Z")
  * // - messageType: "DEMO_TRANSACTION"
  *
+ * // JSON representation:
+ * // {
+ * //   "type": "DEMO_TRANSACTION",
+ * //   "messageId": "550e8400-e29b-41d4-a716-446655440000",
+ * //   "timestamp": "2025-01-24T10:30:00Z",
+ * //   "messageType": "DEMO_TRANSACTION",
+ * //   "sourceId": "ACC-001",
+ * //   "targetId": "ACC-002",
+ * //   "amount": 100.50,
+ * //   "currency": "USD",
+ * //   "status": "CREATED",
+ * //   "description": "Payment for order #12345"
+ * // }
+ * }</pre>
 
- *
  * @see DemoTransaction
  * @see DemoNotification
  * @author Serkut Yıldırım
