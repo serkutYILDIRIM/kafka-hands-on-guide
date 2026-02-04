@@ -69,7 +69,7 @@ import java.util.UUID;
  * //   "description": "Payment for order #12345"
  * // }
  * }</pre>
- *
+
  * @see DemoTransaction
  * @see DemoNotification
  * @author Serkut Yıldırım
