@@ -100,6 +100,7 @@ public abstract class BaseMessage {
      * Creation timestamp in UTC.
      * Uses {@link Instant} for timezone-agnostic time representation.
      * Set automatically to the current time when the message is created.
+     *
      */
     private final Instant timestamp = Instant.now();
 
