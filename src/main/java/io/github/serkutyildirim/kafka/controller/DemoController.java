@@ -41,6 +41,7 @@ public class DemoController {
 
     public DemoController(KafkaService kafkaService, MessageValidationService validationService) {
         this.kafkaService = kafkaService;
+
         this.validationService = validationService;
     }
 
