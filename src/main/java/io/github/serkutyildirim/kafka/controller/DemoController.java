@@ -59,7 +59,6 @@ public class DemoController {
 
     /**
      * Send a transaction using simple producer
-     * Example class
      */
     @PostMapping("/send-simple")
     public ResponseEntity<Map<String, Object>> sendSimple(@Valid @RequestBody DemoTransaction transaction) {
