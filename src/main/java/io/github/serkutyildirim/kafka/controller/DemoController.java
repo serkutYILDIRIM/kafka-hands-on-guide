@@ -55,6 +55,7 @@ public class DemoController {
         Map<String, String> response = new HashMap<>();
         response.put("status", "UP");
         response.put("service", "kafka-hands-on-guide");
+
         return ResponseEntity.ok(response);
     }
 
