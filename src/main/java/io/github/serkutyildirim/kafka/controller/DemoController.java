@@ -139,6 +139,7 @@ public class DemoController {
             if (!validationService.validateTransaction(transaction)) {
                 response.put("success", false);
                 response.put("error", "Transaction validation failed");
+
                 return ResponseEntity.badRequest().body(response);
             }
             
