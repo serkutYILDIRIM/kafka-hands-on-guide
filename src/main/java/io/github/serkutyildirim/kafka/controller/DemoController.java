@@ -188,6 +188,7 @@ public class DemoController {
             logger.error("Error sending notification: {}", e.getMessage());
             response.put("success", false);
             response.put("error", e.getMessage());
+
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
