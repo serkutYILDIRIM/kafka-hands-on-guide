@@ -63,6 +63,7 @@ public class ManualAckConsumer {
             // TODO: Only acknowledge after successful processing
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
+
                 logger.info("[ManualAckConsumer] Message acknowledged at offset {}", offset);
             }
             
