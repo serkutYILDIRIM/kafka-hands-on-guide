@@ -71,6 +71,7 @@ public class BatchConsumer {
             // Acknowledge entire batch after successful processing
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
+
                 logger.info("[BatchConsumer] Batch acknowledged successfully");
             }
             
