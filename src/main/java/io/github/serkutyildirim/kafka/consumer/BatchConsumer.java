@@ -72,7 +72,6 @@ public class BatchConsumer {
             if (acknowledgment != null) {
                 acknowledgment.acknowledge();
 
-
                 logger.info("[BatchConsumer] Batch acknowledged successfully");
             }
             
