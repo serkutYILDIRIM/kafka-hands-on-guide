@@ -25,6 +25,7 @@ public class KafkaHandsOnGuideApplication {
     public static void main(String[] args) {
         logger.info("Starting Kafka Hands-On Guide Application...");
         SpringApplication.run(KafkaHandsOnGuideApplication.class, args);
+
         logger.info("Kafka Hands-On Guide Started!");
     }
 
