@@ -58,8 +58,7 @@ public class BatchConsumer {
                 int partition = record.partition();
                 long offset = record.offset();
 
-                logger.debug("[BatchConsumer] Processing message {} from partition {} at offset {}", 
-                    i + 1, partition, offset);
+                logger.debug("[BatchConsumer] Processing message {} from partition {} at offset {}",i + 1, partition, offset);
                 
                 // Process individual message
                 // processMessage(message);
