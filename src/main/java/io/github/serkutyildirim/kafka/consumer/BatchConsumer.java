@@ -94,6 +94,7 @@ public class BatchConsumer {
      */
     private void processInSubBatches(List<Object> messages, int batchSize) {
         // TODO: Implement sub-batch processing logic
+
         logger.debug("Processing {} messages in sub-batches of {}", messages.size(), batchSize);
     }
 
