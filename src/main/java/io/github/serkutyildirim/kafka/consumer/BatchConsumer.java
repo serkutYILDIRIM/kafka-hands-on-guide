@@ -75,7 +75,8 @@ public class BatchConsumer {
             }
             
         } catch (Exception e) {
-            logger.error("[BatchConsumer] Error processing batch: {}", e.getMessage());
+            logger.error("[BatchConsumer] Error processing batch: {}", e.getMessage(
+
             // TODO: Implement batch error handling
 
             // Option 1: Don't acknowledge (entire batch will be reprocessed)
