@@ -60,6 +60,7 @@ public class ErrorHandlingConsumer {
         int attemptCount = 0;
         
         while (!processed && attemptCount < MAX_RETRY_ATTEMPTS) {
+
             try {
                 attemptCount++;
                 logger.debug("[ErrorHandlingConsumer] Processing attempt {} for message at offset {}", 
