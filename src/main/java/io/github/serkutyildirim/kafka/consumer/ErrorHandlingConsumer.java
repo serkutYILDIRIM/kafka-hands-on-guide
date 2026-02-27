@@ -74,6 +74,7 @@ public class ErrorHandlingConsumer {
                 // Acknowledge after successful processing
                 if (acknowledgment != null) {
                     acknowledgment.acknowledge();
+
                     logger.info("[ErrorHandlingConsumer] Message processed and acknowledged at offset {}", offset);
                 }
                 
