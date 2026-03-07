@@ -2,45 +2,51 @@ package io.github.serkutyildirim.kafka.model;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Base class for all Kafka messages in the system.
- * Provides common fields and polymorphic serialization support for event-driven architectures.
+ * Base class for all Kafka message payloads in the guide.
+ * It centralizes shared metadata and enables polymorphic JSON serialization for heterogeneous event streams.
  *
- * <p><b>Design Decisions:</b></p>
+ * <p><b>Why UUID for message IDs?</b></p>
  * <ul>
- *   <li><b>UUID for Message IDs:</b> Ensures global uniqueness across distributed systems without
- *       coordination. UUIDs are collision-resistant and can be generated independently by any service,
- *       making them ideal for Kafka's distributed nature where multiple producers may generate
- *       messages simultaneously.</li>
- *   <li><b>Instant over LocalDateTime:</b> {@link Instant} represents a point in time in UTC,
- *       making it timezone-agnostic. This is critical in distributed systems where services may run
- *       in different timezones. {@link Instant} also maps directly to Unix timestamps, simplifying
- *       integration with Kafka's timestamp metadata.</li>
- *   <li><b>Polymorphic Serialization:</b> Using Jackson's {@code @JsonTypeInfo} and {@code @JsonSubTypes}
- *       enables storing the message type directly in the JSON payload. This allows consumers to
- *       deserialize messages to the correct subclass without external type information, supporting
- *       schema evolution and multiple message types on the same topic.</li>
+ *   <li>{@link UUID} values can be generated independently by every producer without a shared sequence or database.</li>
+ *   <li>This fits distributed Kafka deployments where many services publish concurrently across machines and regions.</li>
+ *   <li>Globally unique identifiers also simplify tracing, deduplication, replay analysis, and correlation across topics.</li>
  * </ul>
  *
- * <p><b>Kafka Serialization Considerations:</b></p>
+ * <p><b>Why Instant instead of LocalDateTime?</b></p>
  * <ul>
- *   <li>The {@code type} field in JSON identifies the concrete message class</li>
- *   <li>Supports schema evolution - new fields can be added to subclasses without breaking existing consumers</li>
- *   <li>Compatible with Kafka's default JsonSerializer/JsonDeserializer</li>
- *   <li>All timestamps are in UTC to avoid timezone conversion issues across services</li>
+ *   <li>{@link Instant} represents an absolute UTC moment, so it is timezone-agnostic.</li>
+ *   <li>That avoids ambiguous timestamps when producers and consumers run in different locales or daylight-saving rules.</li>
+ *   <li>It also maps naturally to Kafka event timelines, observability tooling, and cross-service audit logs.</li>
  * </ul>
  *
- * <p><b>Usage Example:</b></p>
+ * <p><b>Why polymorphic serialization in Kafka?</b></p>
+ * <ul>
+ *   <li>The JSON {@code type} discriminator lets one topic carry multiple event shapes safely.</li>
+ *   <li>Consumers can deserialize directly to the correct subclass without external routing metadata.</li>
+ *   <li>This improves extensibility, makes schema evolution easier, and keeps producer/consumer contracts explicit.</li>
+ * </ul>
+ *
+ * <p><b>Kafka serialization considerations:</b></p>
+ * <ul>
+ *   <li>The logical {@code messageType} field mirrors the Jackson {@code type} discriminator and helps with logging and routing.</li>
+ *   <li>Auto-generated metadata reduces producer mistakes and keeps events consistent across services.</li>
+ *   <li>Builder defaults are useful in distributed systems because metadata is present even when producers only supply business fields.</li>
+ * </ul>
+ *
+ * <p><b>Usage example:</b></p>
  * <pre>{@code
- * // Creating a transaction message
  * DemoTransaction transaction = DemoTransaction.builder()
  *     .sourceId("ACC-001")
  *     .targetId("ACC-002")
@@ -50,39 +56,18 @@ import java.util.UUID;
  *     .description("Payment for order #12345")
  *     .build();
  *
- * // The message will automatically have:
- * // - messageId: auto-generated UUID (e.g., "550e8400-e29b-41d4-a716-446655440000")
- * // - timestamp: current Instant (e.g., "2025-01-24T10:30:00Z")
- * // - messageType: "DEMO_TRANSACTION"
- *
- * // JSON representation:
- * // {
- * //   "type": "DEMO_TRANSACTION",
- * //   "messageId": "550e8400-e29b-41d4-a716-446655440000",
- * //   "timestamp": "2025-01-24T10:30:00Z",
- * //   "messageType": "DEMO_TRANSACTION",
- * //   "sourceId": "ACC-001",
- * //   "targetId": "ACC-002",
- * //   "amount": 100.50,
- * //   "currency": "USD",
- * //   "status": "CREATED",
- * //   "description": "Payment for order #12345"
- * // }
- * }</pre>
- *
- * @see DemoTransaction
- * @see DemoNotification
- * @author Serkut Yıldırım
+ * // Auto-populated metadata:
+ * // - messageId   -> random UUID
+ * // - timestamp   -> current UTC instant
+ * // - messageType -> "DEMO_TRANSACTION"
+ * }
+ * </pre>
  */
 @Data
 @NoArgsConstructor(force = true)
 @AllArgsConstructor
-@SuperBuilder
-@JsonTypeInfo(
-    use = JsonTypeInfo.Id.NAME,
-    include = JsonTypeInfo.As.PROPERTY,
-    property = "type"
-)
+@SuperBuilder(toBuilder = true)
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
     @JsonSubTypes.Type(value = DemoTransaction.class, name = "DEMO_TRANSACTION"),
     @JsonSubTypes.Type(value = DemoNotification.class, name = "DEMO_NOTIFICATION")
@@ -90,24 +75,29 @@ import java.util.UUID;
 public abstract class BaseMessage {
 
     /**
-     * Unique identifier for this message.
-     * Generated automatically using UUID version 4 (random).
-     * Ensures global uniqueness across all services and Kafka partitions.
+     * Unique message identifier used for traceability, correlation, and deduplication.
      */
+    @Builder.Default
     private final UUID messageId = UUID.randomUUID();
 
     /**
-     * Creation timestamp in UTC.
-     * Uses {@link Instant} for timezone-agnostic time representation.
-     * Set automatically to the current time when the message is created.
-     *
+     * UTC creation time for the message.
      */
+    @Builder.Default
     private final Instant timestamp = Instant.now();
 
     /**
-     * Type identifier for this message.
-     * Set by subclasses to identify the concrete message type.
-     * Used for routing, filtering, and consumer logic.
+     * Logical message type set by subclasses.
+     * We avoid exposing a public setter so message identity stays stable after creation.
      */
-    private final String messageType;
+    @Setter(AccessLevel.NONE)
+    private String messageType;
+
+    /**
+     * Initializes the logical message type from a subclass-specific constant.
+     */
+    @SuppressWarnings("unused")
+    protected void initializeMessageType(String messageType) {
+        this.messageType = messageType;
+    }
 }
