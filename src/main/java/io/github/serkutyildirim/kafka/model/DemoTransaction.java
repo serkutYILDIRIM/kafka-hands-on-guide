@@ -4,48 +4,50 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+import lombok.extern.jackson.Jacksonized;
 
 import java.math.BigDecimal;
 
 /**
- * Transaction message representing a financial transaction in the system.
- * Extends {@link BaseMessage} to inherit common message fields and polymorphic serialization.
+ * Transaction message representing a financial transfer event.
+ * It extends {@link BaseMessage} so the payload carries both business data and Kafka-friendly metadata.
  *
- * <p><b>Design Decisions:</b></p>
+ * <p><b>Why BigDecimal for money?</b></p>
  * <ul>
- *   <li><b>BigDecimal for Money:</b> Using {@link BigDecimal} instead of {@code double} or {@code float}
- *       prevents floating-point precision errors that are critical in financial calculations.
- *       For example: {@code 0.1 + 0.2 = 0.30000000000000004} in floating-point, but
- *       {@code BigDecimal("0.1").add(BigDecimal("0.2")) = 0.3} exactly.
- *       BigDecimal ensures precision for currency calculations, regulatory compliance, and audit trails.</li>
- *
- *   <li><b>Status Tracking:</b> The {@link MessageStatus} field enables tracking transaction lifecycle
- *       in event-driven systems. This is crucial for:
- *       <ul>
- *         <li>Idempotency - detecting duplicate processing attempts</li>
- *         <li>Error recovery - identifying failed transactions for retry</li>
- *         <li>Audit trails - maintaining complete transaction history</li>
- *         <li>Monitoring - alerting on stuck or failed transactions</li>
- *       </ul></li>
- *
- *   <li><b>Field Validation:</b> Bean Validation annotations ensure data integrity before messages
- *       enter the Kafka pipeline. Catching validation errors early prevents:
- *       <ul>
- *         <li>Invalid messages polluting topics</li>
- *         <li>Consumer crashes due to malformed data</li>
- *         <li>Silent data corruption in downstream systems</li>
- *         <li>Difficult debugging across distributed services</li>
- *       </ul>
- *       In distributed systems, validation at message boundaries is critical for system resilience.</li>
+ *   <li>{@link BigDecimal} avoids floating-point precision errors that are unacceptable in financial domains.</li>
+ *   <li>That makes totals, fees, reconciliation, and audits deterministic across producers and consumers.</li>
+ *   <li>In event-driven systems, an imprecise amount can fan out into multiple downstream inconsistencies, so exact arithmetic matters.</li>
  * </ul>
  *
- * <p><b>Example JSON Representation:</b></p>
- * <pre>
+ * <p><b>Why track status on the event?</b></p>
+ * <ul>
+ *   <li>{@link MessageStatus} helps consumers model processing progress explicitly.</li>
+ *   <li>It supports retries, dead-letter routing, observability, audit trails, and idempotent workflows.</li>
+ *   <li>Publishing status-aware events makes failure handling easier to understand across distributed services.</li>
+ * </ul>
+ *
+ * <p><b>Why validate fields at the message boundary?</b></p>
+ * <ul>
+ *   <li>Kafka topics are shared contracts, so invalid data can quickly affect multiple consumers.</li>
+ *   <li>Early validation prevents malformed events from spreading through a distributed system.</li>
+ *   <li>That reduces poison messages, replay noise, debugging cost, and downstream data corruption.</li>
+ * </ul>
+ *
+ * <p><b>Kafka serialization considerations:</b></p>
+ * <ul>
+ *   <li>The builder keeps creation concise while still auto-populating shared metadata.</li>
+ *   <li>Enum values serialize to stable strings, which is easy for non-Java consumers to read.</li>
+ *   <li>Validation annotations document the event contract close to the payload itself.</li>
+ * </ul>
+ *
+ * <p><b>Example JSON representation:</b></p>
+ * <pre>{@code
  * {
  *   "type": "DEMO_TRANSACTION",
  *   "messageId": "550e8400-e29b-41d4-a716-446655440000",
@@ -58,101 +60,64 @@ import java.math.BigDecimal;
  *   "status": "CREATED",
  *   "description": "Payment for order #12345"
  * }
- * </pre>
- *
- * <p><b>Kafka Usage Patterns:</b></p>
- * <ul>
- *   <li><b>Partition Key:</b> Use {@code sourceId} as partition key to ensure all transactions
- *       from the same source account are processed in order on the same partition</li>
- *   <li><b>Idempotent Producer:</b> Use {@code messageId} (UUID) to detect duplicates and
- *       enable exactly-once semantics</li>
- *   <li><b>Status Updates:</b> Consumers should update {@code status} field and produce
- *       status change events to audit topic</li>
- * </ul>
- *
- * @see BaseMessage
- * @see MessageStatus
- * @author Serkut Yıldırım
+ * }</pre>
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
+@SuperBuilder(toBuilder = true)
+@Jacksonized
 @NoArgsConstructor(force = true)
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true)
-@SuperBuilder
 public class DemoTransaction extends BaseMessage {
 
-    /**
-     * Message type identifier for transaction messages.
-     * Set to constant value to identify this message as a transaction.
-     */
-    private final String messageType = "DEMO_TRANSACTION";
+    private static final String MESSAGE_TYPE = "DEMO_TRANSACTION";
+
+    {
+        initializeMessageType(MESSAGE_TYPE);
+    }
 
     /**
      * Source account identifier.
-     * Represents the account from which funds are transferred.
-     * Must not be blank. Used as Kafka partition key to ensure ordering.
+     * Not blank and size-limited so invalid routing keys do not enter Kafka topics.
      */
     @NotBlank(message = "Source ID cannot be blank")
+    @Size(max = 64, message = "Source ID must be at most 64 characters")
     private final String sourceId;
 
     /**
      * Target account identifier.
-     * Represents the account to which funds are transferred.
-     * Must not be blank.
+     * Validation is important in distributed systems because bad identifiers become expensive to repair after fan-out.
      */
     @NotBlank(message = "Target ID cannot be blank")
+    @Size(max = 64, message = "Target ID must be at most 64 characters")
     private final String targetId;
 
     /**
-     * Transaction amount.
-     * Uses {@link BigDecimal} to avoid floating-point precision errors in financial calculations.
-     * Must be positive and not null.
-     *
-     * <p><b>Why BigDecimal:</b></p>
-     * <pre>
-     * // Floating-point error example:
-     * double result = 0.1 + 0.2;  // 0.30000000000000004 (WRONG!)
-     *
-     * // BigDecimal precision:
-     * BigDecimal result = new BigDecimal("0.1").add(new BigDecimal("0.2"));  // 0.3 (CORRECT!)
-     * </pre>
+     * Positive transaction amount.
+     * A non-positive value would represent an invalid financial event for this example domain.
      */
     @NotNull(message = "Amount cannot be null")
     @Positive(message = "Amount must be positive")
     private final BigDecimal amount;
 
     /**
-     * ISO 4217 currency code (e.g., USD, EUR, GBP, TRY).
-     * Must be exactly 3 uppercase letters following ISO 4217 standard.
-     * Ensures consistent currency representation across the system.
-     *
-     * <p>Validation ensures format correctness. Currency existence should be validated
-     * against a currency reference service in business logic.</p>
+     * ISO 4217 currency code such as USD, EUR, or TRY.
+     * Structural validation catches malformed currency values before they spread to consumers.
      */
     @NotBlank(message = "Currency cannot be blank")
+    @Size(min = 3, max = 3, message = "Currency must be exactly 3 characters")
     @Pattern(regexp = "^[A-Z]{3}$", message = "Currency must be a 3-letter ISO 4217 code (e.g., USD, EUR)")
     private final String currency;
 
     /**
-     * Processing status of the transaction.
-     * Tracks the message lifecycle through the Kafka pipeline.
-     * Must not be null. See {@link MessageStatus} for state transition diagram.
-     *
-     * <p><b>Status Tracking Importance in Event-Driven Systems:</b></p>
-     * <ul>
-     *   <li>Enables idempotent processing by checking current status before processing</li>
-     *   <li>Supports retry logic by identifying FAILED transactions</li>
-     *   <li>Facilitates monitoring and alerting on stuck transactions</li>
-     *   <li>Creates audit trail for compliance and debugging</li>
-     * </ul>
+     * Processing status for the event lifecycle.
      */
     @NotNull(message = "Status cannot be null")
     private final MessageStatus status;
 
     /**
-     * Optional human-readable description of the transaction.
-     * Can contain additional context like order number, invoice reference, etc.
-     * Not validated as it's optional and free-form.
+     * Optional human-readable description for operators and consumers.
      */
+    @Size(max = 255, message = "Description must be at most 255 characters")
     private final String description;
 }

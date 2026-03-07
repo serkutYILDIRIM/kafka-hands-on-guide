@@ -2,49 +2,42 @@ package io.github.serkutyildirim.kafka.model;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
+import lombok.extern.jackson.Jacksonized;
 
 /**
- * Notification message representing a user notification in the system.
- * Extends {@link BaseMessage} to inherit common message fields and polymorphic serialization.
+ * Notification message representing a lightweight outbound communication event.
+ * Compared with {@link DemoTransaction}, this model is intentionally simpler because it does not carry monetary data,
+ * currency rules, or transfer-specific business semantics.
  *
- * <p><b>Simpler Structure Compared to DemoTransaction:</b></p>
- * <p>Unlike {@link DemoTransaction}, this class has a simpler structure because:
+ * <p><b>Why is this structure simpler than DemoTransaction?</b></p>
  * <ul>
- *   <li>No financial calculations requiring {@link java.math.BigDecimal} precision</li>
- *   <li>No complex validation rules (e.g., currency codes, positive amounts)</li>
- *   <li>More focused domain - just delivering a message to a recipient</li>
- *   <li>Status tracking inherited from {@link BaseMessage} handles lifecycle management</li>
+ *   <li>Notifications mostly need recipient, content, channel, and urgency information.</li>
+ *   <li>There is no financial precision concern like {@link java.math.BigDecimal} handling.</li>
+ *   <li>The validation rules are simpler, which makes the payload easier for generic notification consumers to process.</li>
  * </ul>
  *
- * <p><b>When to Use Separate Message Types vs Single Unified Type:</b></p>
- * <p><b>Use Separate Types (like DemoTransaction and DemoNotification) when:</b></p>
+ * <p><b>When to use separate message types instead of one unified type?</b></p>
  * <ul>
- *   <li>Different validation requirements (transactions need strict financial validation)</li>
- *   <li>Different consumer logic (transaction processors vs notification senders)</li>
- *   <li>Different SLAs and priorities (transactions may need lower latency)</li>
- *   <li>Different retention policies (transactions may need longer retention for auditing)</li>
- *   <li>Different schema evolution patterns (notifications may change more frequently)</li>
- *   <li>Clearer domain separation and type safety in code</li>
+ *   <li>Use separate types when domains have different validation rules, lifecycles, SLAs, or consumers.</li>
+ *   <li>Use a unified type only when payload structure and processing semantics are nearly identical.</li>
+ *   <li>In Kafka, separate types improve type safety, observability, and evolution of independent schemas.</li>
  * </ul>
  *
- * <p><b>Use Single Unified Type when:</b></p>
+ * <p><b>Kafka serialization considerations:</b></p>
  * <ul>
- *   <li>Messages share most fields and business logic</li>
- *   <li>Same consumer processes all message types</li>
- *   <li>Similar SLAs and processing requirements</li>
- *   <li>Fewer message types simplifies topic management</li>
+ *   <li>Enums serialize as readable strings, which keeps topic payloads easy to inspect.</li>
+ *   <li>Priority and channel fields are useful for topic routing, consumer filtering, and alerting strategies.</li>
+ *   <li>Validation matters in distributed systems because invalid notifications can be replicated, retried, and dead-lettered many times.</li>
  * </ul>
  *
- * <p>In this example, we use separate types because notifications and transactions have
- * different processing requirements, SLAs, and consumer implementations.</p>
- *
- * <p><b>Example JSON Representation:</b></p>
- * <pre>
+ * <p><b>Example JSON representation:</b></p>
+ * <pre>{@code
  * {
  *   "type": "DEMO_NOTIFICATION",
  *   "messageId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
@@ -55,97 +48,45 @@ import lombok.experimental.SuperBuilder;
  *   "notificationType": "PUSH",
  *   "priority": "HIGH"
  * }
- * </pre>
- *
- * <p><b>Kafka Usage Patterns:</b></p>
- * <ul>
- *   <li><b>Topic Routing:</b> Route by priority to different topics (notifications.high, notifications.standard)
- *       or by notificationType (notifications.email, notifications.sms, notifications.push)</li>
- *   <li><b>Partition Key:</b> Use {@code recipientId} to ensure all notifications to the same
- *       user are processed in order</li>
- *   <li><b>Batching:</b> Low priority notifications can be batched for efficiency</li>
- *   <li><b>Filtering:</b> Consumers can filter by notificationType to handle specific channels</li>
- * </ul>
- *
- * @see BaseMessage
- * @see NotificationType
- * @see Priority
- * @author Serkut Yıldırım
+ * }</pre>
  */
 @Data
+@EqualsAndHashCode(callSuper = true)
+@SuperBuilder(toBuilder = true)
+@Jacksonized
 @NoArgsConstructor(force = true)
 @AllArgsConstructor
-@EqualsAndHashCode(callSuper = true)
-@SuperBuilder
 public class DemoNotification extends BaseMessage {
 
-    /**
-     * Message type identifier for notification messages.
-     * Set to constant value to identify this message as a notification.
-     */
-    private final String messageType = "DEMO_NOTIFICATION";
+    private static final String MESSAGE_TYPE = "DEMO_NOTIFICATION";
+
+    {
+        initializeMessageType(MESSAGE_TYPE);
+    }
 
     /**
-     * Recipient identifier.
-     * Identifies the user or system that should receive this notification.
-     * Must not be blank. Used as Kafka partition key to ensure ordering per recipient.
+     * Recipient identifier used for routing and per-user ordering.
      */
     @NotBlank(message = "Recipient ID cannot be blank")
+    @Size(max = 64, message = "Recipient ID must be at most 64 characters")
     private final String recipientId;
 
     /**
-     * Notification message content.
-     * The actual message to be delivered to the recipient.
-     * Must not be blank.
-     *
-     * <p>Content format and length constraints may vary by {@link NotificationType}:
-     * <ul>
-     *   <li>SMS: Limited to ~160 characters</li>
-     *   <li>PUSH: Limited to ~100-200 characters depending on platform</li>
-     *   <li>EMAIL: Can support longer, HTML-formatted content</li>
-     * </ul>
+     * Message content to deliver.
+     * Size limits help keep payloads practical for Kafka transport and downstream delivery channels.
      */
     @NotBlank(message = "Content cannot be blank")
+    @Size(max = 500, message = "Content must be at most 500 characters")
     private final String content;
 
     /**
-     * Notification delivery channel type.
-     * Determines how the notification will be delivered to the recipient.
-     * Must not be null.
-     *
-     * <p>Different types have different characteristics:
-     * <ul>
-     *   <li>{@link NotificationType#EMAIL}: Slower, supports rich content</li>
-     *   <li>{@link NotificationType#SMS}: Fast, plain text, character limited</li>
-     *   <li>{@link NotificationType#PUSH}: Fastest, requires app installation</li>
-     * </ul>
-     *
-     * @see NotificationType for detailed comparison
+     * Delivery channel enum.
      */
     @NotNull(message = "Notification type cannot be null")
     private final NotificationType notificationType;
 
     /**
-     * Processing priority for this notification.
-     * Determines routing and processing speed.
-     * Must not be null.
-     *
-     * <p>Priority affects:
-     * <ul>
-     *   <li>Topic routing (high priority may go to dedicated topic)</li>
-     *   <li>Consumer resources (high priority gets more/faster consumers)</li>
-     *   <li>Processing order (high priority processed before low)</li>
-     *   <li>Batching strategy (low priority may be batched for efficiency)</li>
-     * </ul>
-     *
-     * <p>Examples:
-     * <ul>
-     *   <li>{@link Priority#HIGH}: Security alerts, OTP codes, payment failures</li>
-     *   <li>{@link Priority#MEDIUM}: Order confirmations, transaction receipts</li>
-     *   <li>{@link Priority#LOW}: Marketing emails, newsletters, digests</li>
-     * </ul>
-     *
-     * @see Priority for routing strategy details
+     * Processing priority used for routing and resource allocation.
      */
     @NotNull(message = "Priority cannot be null")
     private final Priority priority;
