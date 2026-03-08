@@ -41,7 +41,7 @@ public class BatchConsumer {
     @KafkaListener(
         topics = KafkaTopicConfig.DEMO_NOTIFICATIONS_TOPIC,
         groupId = "batch-consumer-group",
-        containerFactory = "kafkaListenerContainerFactory",
+        containerFactory = "batchListenerContainerFactory",
         batch = "true"
     )
     public void consumeBatch(
