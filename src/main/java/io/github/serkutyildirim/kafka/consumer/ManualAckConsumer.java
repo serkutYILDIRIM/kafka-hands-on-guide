@@ -42,8 +42,8 @@ public class ManualAckConsumer {
      */
     @KafkaListener(
         topics = KafkaTopicConfig.DEMO_TRANSACTIONS_TOPIC,
-        groupId = "manual-ack-consumer-group",
-        containerFactory = "kafkaListenerContainerFactory"
+        groupId = "manual-ack-group",
+        containerFactory = "manualAckListenerContainerFactory"
     )
     public void consumeWithManualAck(
             @Payload Object message,
