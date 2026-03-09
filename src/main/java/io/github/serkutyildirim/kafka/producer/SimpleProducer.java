@@ -1,58 +1,52 @@
 package io.github.serkutyildirim.kafka.producer;
 
-import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
 import io.github.serkutyildirim.kafka.model.DemoTransaction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.errors.SerializationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Simple Kafka producer implementation.
- * 
- * Demonstrates the most basic way to send messages to Kafka:
- * - Fire-and-forget pattern
- * - No callback handling
- * - Suitable for non-critical messages
- * 
- * TODO: Implement message sending logic
- * TODO: Add basic error logging
- * TODO: Add method to send with custom partition key
- * 
- * @author Serkut Yıldırım
+ * Demonstrates the Fire-and-Forget producer pattern for {@link DemoTransaction} events.
+ *
+ * <p><b>When to use:</b> Metrics, logs, telemetry, and other non-critical data where raw throughput matters more than delivery confirmation.</p>
+ * <p><b>Performance:</b> Typically the fastest option because the caller does not wait for broker acknowledgments.</p>
+ * <p><b>Common pitfalls:</b> Broker-side failures can happen after the method returns, so this pattern should not be used for money movement or other critical workflows.</p>
+ *
+ * <p><b>Example usage:</b></p>
+ * <pre>{@code
+ * simpleProducer.send(transaction);
+ * }</pre>
  */
 @Component
+@Slf4j
 public class SimpleProducer {
 
-    private static final Logger logger = LoggerFactory.getLogger(SimpleProducer.class);
+    private static final String TOPIC = "demo-messages";
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    public SimpleProducer(KafkaTemplate<String, Object> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
-    }
+    @Autowired
+    private KafkaTemplate<String, DemoTransaction> kafkaTemplate;
 
     /**
-     * Send a message to Kafka without waiting for response (fire-and-forget)
-     * 
-     * @param message The message to send
+     * Pattern name: Fire-and-Forget
+     * Characteristics: Fastest, least reliable
+     * Use cases: Metrics, logs, non-critical data
+     * Performance: ~100k msgs/sec
+     * Reliability: Message might be lost
      */
-    public void sendMessage(DemoTransaction message) {
-        logger.info("Sending message with SimpleProducer: {}", message.getMessageId());
-        // TODO: Implement kafka send logic
-        kafkaTemplate.send(KafkaTopicConfig.DEMO_MESSAGES_TOPIC, message.getSourceId(), message);
+    public void send(DemoTransaction transaction) {
+        // This is the simplest producer pattern: enqueue the send request and return immediately.
+        // We intentionally do not attach a callback or wait for broker acknowledgment.
+        // That makes it very fast, but later network/broker failures may go unnoticed by this caller.
+        try {
+            log.info("Sending message: {}", transaction.getMessageId());
+            kafkaTemplate.send(TOPIC, transaction);
+            // Retry strategy note: fire-and-forget typically relies only on producer-level retries from configuration.
+        } catch (SerializationException ex) {
+            log.error("Serialization failed for fire-and-forget messageId={}", transaction.getMessageId(), ex);
+        } catch (RuntimeException ex) {
+            log.error("Unable to dispatch fire-and-forget messageId={} to topic={}", transaction.getMessageId(), TOPIC, ex);
+        }
     }
-
-    /**
-     * Send a message to a specific topic
-     * 
-     * @param topic The target topic
-     * @param message The message to send
-     */
-    public void sendToTopic(String topic, Object message) {
-        logger.info("Sending message to topic {}", topic);
-        // TODO: Implement send to custom topic logic
-        kafkaTemplate.send(topic, message);
-    }
-
 }

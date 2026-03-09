@@ -1,5 +1,6 @@
 package io.github.serkutyildirim.kafka.config;
 
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -65,7 +66,7 @@ public class KafkaProducerConfig {
 
     @Bean
     @Primary
-    public ProducerFactory<String, Object> producerFactory() {
+    public ProducerFactory<String, DemoTransaction> producerFactory() {
         Map<String, Object> configs = standardProducerConfigs();
         log.info("Creating standard Kafka producer factory for bootstrap servers {}", bootstrapServers);
         return new DefaultKafkaProducerFactory<>(configs);
@@ -73,15 +74,15 @@ public class KafkaProducerConfig {
 
     @Bean
     @Primary
-    public KafkaTemplate<String, Object> kafkaTemplate() {
+    public KafkaTemplate<String, DemoTransaction> kafkaTemplate() {
         log.info("Creating standard KafkaTemplate bean");
         return new KafkaTemplate<>(producerFactory());
     }
 
     @Bean
-    public ProducerFactory<String, Object> transactionalProducerFactory() {
+    public ProducerFactory<String, DemoTransaction> transactionalProducerFactory() {
         Map<String, Object> configs = transactionalProducerConfigs();
-        DefaultKafkaProducerFactory<String, Object> producerFactory = new DefaultKafkaProducerFactory<>(configs);
+        DefaultKafkaProducerFactory<String, DemoTransaction> producerFactory = new DefaultKafkaProducerFactory<>(configs);
         producerFactory.setTransactionIdPrefix(transactionIdPrefix);
         log.info("Creating transactional Kafka producer factory with transactionIdPrefix={}", transactionIdPrefix);
         return producerFactory;
@@ -89,8 +90,8 @@ public class KafkaProducerConfig {
 
     @Bean(name = "transactionalKafkaTemplate")
     @Qualifier("transactionalKafkaTemplate")
-    public KafkaTemplate<String, Object> transactionalKafkaTemplate() {
-        KafkaTemplate<String, Object> template = new KafkaTemplate<>(transactionalProducerFactory());
+    public KafkaTemplate<String, DemoTransaction> transactionalKafkaTemplate() {
+        KafkaTemplate<String, DemoTransaction> template = new KafkaTemplate<>(transactionalProducerFactory());
         // Exactly-once semantics depend on stable transactional IDs so Kafka can fence zombie producers.
         // Spring uses this prefix to generate concrete transactional IDs per producer instance.
         // Transactions add coordination overhead, so expect roughly 20-30% lower throughput than non-transactional sends.

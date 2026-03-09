@@ -1,78 +1,91 @@
 package io.github.serkutyildirim.kafka.producer;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.errors.SerializationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
+
 /**
- * Partitioned Kafka producer implementation.
- * 
- * Demonstrates partition-aware message sending with:
- * - Custom partition key selection
- * - Explicit partition targeting
- * - Partition ordering guarantees
- * - Load balancing across partitions
- * 
- * TODO: Implement send with partition key
- * TODO: Implement send to specific partition
- * TODO: Add custom partitioner logic
- * TODO: Add partition selection strategy documentation
- * 
- * @author Serkut Yıldırım
+ * Demonstrates the Key-Based Partitioning producer pattern for {@link DemoTransaction} events.
+ *
+ * <p><b>When to use:</b> User events, account transactions, and any workflow where all events for the same entity must stay ordered.</p>
+ * <p><b>Performance:</b> Similar to other async sends, but key choice strongly affects partition balance.</p>
+ * <p><b>Common pitfalls:</b> A hot key can overload one partition and reduce total throughput even when the topic has many partitions.</p>
+ *
+ * <p><b>Example usage:</b></p>
+ * <pre>{@code
+ * partitionedProducer.sendWithKey(transaction.getSourceId(), transaction);
+ * }</pre>
  */
 @Component
+@Slf4j
 public class PartitionedProducer {
 
-    private static final Logger logger = LoggerFactory.getLogger(PartitionedProducer.class);
+    private static final String TOPIC = "demo-messages";
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    public PartitionedProducer(KafkaTemplate<String, Object> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
-    }
+    @Autowired
+    private KafkaTemplate<String, DemoTransaction> kafkaTemplate;
 
     /**
-     * Send a message with a partition key
-     * Messages with the same key will go to the same partition (ordering guaranteed)
-     * 
-     * @param topic The target topic
-     * @param partitionKey The key to determine partition
-     * @param message The message to send
+     * Pattern name: Key-Based Partitioning
+     * Characteristics: Ensures message ordering per key
+     * Use cases: User events, account transactions
+     * Key insight: Same key always goes to same partition
+     * Partition formula: hash(key) % partition_count
      */
-    public void sendWithPartitionKey(String topic, String partitionKey, Object message) {
-        logger.info("Sending message with partition key: {}", partitionKey);
-        // TODO: Implement send with partition key
-        // TODO: Log which partition the message is sent to
-        kafkaTemplate.send(topic, partitionKey, message);
+    public CompletableFuture<SendResult<String, DemoTransaction>> sendWithKey(String key, DemoTransaction transaction) {
+        // Keys matter because Kafka guarantees ordering only within a single partition.
+        // We usually use the account ID (here the source account ID) as the key so all events for that account stay together.
+        // Kafka's default partitioner uses a hash of the key to pick the partition, which creates partition affinity.
+        // If one key is dramatically hotter than others, that single partition can become a bottleneck.
+        // Use null keys only when per-entity ordering does not matter and even distribution is more important.
+        // Retry strategy note: async retries remain useful here, but repeated failures for one hot key may indicate a skew problem rather than transient instability.
+        try {
+            CompletableFuture<SendResult<String, DemoTransaction>> future = kafkaTemplate.send(TOPIC, key, transaction);
+
+            future.thenAccept(result -> log.info(
+                    "Message with key {} sent to partition {}",
+                    key,
+                    result.getRecordMetadata().partition()
+            )).exceptionally(ex -> {
+                logPartitionFailure(transaction, key, ex);
+                return null;
+            });
+
+            return future;
+        } catch (SerializationException ex) {
+            log.error("Serialization failed for keyed messageId={} key={}", transaction.getMessageId(), key, ex);
+            return CompletableFuture.failedFuture(ex);
+        } catch (RuntimeException ex) {
+            logPartitionFailure(transaction, key, ex);
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
-    /**
-     * Send a message to a specific partition
-     * 
-     * @param topic The target topic
-     * @param partition The target partition number
-     * @param key The message key
-     * @param message The message to send
-     */
-    public void sendToPartition(String topic, int partition, String key, Object message) {
-        logger.info("Sending message to topic {} partition {}", topic, partition);
-        // TODO: Implement send to specific partition
-        // TODO: Add partition validation
-        kafkaTemplate.send(topic, partition, key, message);
+    private void logPartitionFailure(DemoTransaction transaction, String key, Throwable throwable) {
+        Throwable rootCause = unwrap(throwable);
+        if (rootCause instanceof TimeoutException) {
+            log.error("Partitioned send timed out for messageId={} key={}", transaction.getMessageId(), key, rootCause);
+            return;
+        }
+        if (rootCause instanceof SerializationException) {
+            log.error("Partitioned serialization failed for messageId={} key={}", transaction.getMessageId(), key, rootCause);
+            return;
+        }
+        log.error("Partitioned send failed for messageId={} key={}", transaction.getMessageId(), key, rootCause);
     }
 
-    /**
-     * Send a message with custom partition selection logic
-     * 
-     * @param topic The target topic
-     * @param message The message to send
-     * @param totalPartitions Total number of partitions in the topic
-     */
-    public void sendWithCustomPartitioning(String topic, Object message, int totalPartitions) {
-        logger.info("Sending message with custom partitioning logic");
-        // TODO: Implement custom partition selection
-        // TODO: Example: round-robin, hash-based, or business logic based
+    private Throwable unwrap(Throwable throwable) {
+        if (throwable instanceof CompletionException && throwable.getCause() != null) {
+            return throwable.getCause();
+        }
+        return throwable;
     }
-
 }
