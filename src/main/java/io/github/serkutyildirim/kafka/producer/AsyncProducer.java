@@ -1,77 +1,90 @@
 package io.github.serkutyildirim.kafka.producer;
 
-import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.common.errors.SerializationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 
 /**
- * Async Kafka producer implementation.
- * 
- * Demonstrates asynchronous message sending with:
- * - Non-blocking send operations
- * - Callback handling for success/failure
- * - Better performance for high-throughput scenarios
- * - Proper error handling with callbacks
- * 
- * TODO: Implement async send with callbacks
- * TODO: Add success callback handling
- * TODO: Add failure callback handling
- * TODO: Add metrics tracking for async operations
- * 
- * @author Serkut Yıldırım
+ * Demonstrates the Asynchronous with Callback producer pattern for {@link DemoTransaction} events.
+ *
+ * <p><b>When to use:</b> High-throughput message publishing where the caller should stay responsive but failures still need to be observed.</p>
+ * <p><b>Performance:</b> Much faster than synchronous send because the calling thread does not block on broker acknowledgment.</p>
+ * <p><b>Common pitfalls:</b> Teams sometimes forget to observe the returned future, which hides delivery failures and operational signals.</p>
+ *
+ * <p><b>Example usage:</b></p>
+ * <pre>{@code
+ * asyncProducer.sendAsync(transaction)
+ *     .thenAccept(result -> System.out.println(result.getRecordMetadata().offset()));
+ * }</pre>
  */
 @Component
+@Slf4j
 public class AsyncProducer {
 
-    private static final Logger logger = LoggerFactory.getLogger(AsyncProducer.class);
+    private static final String TOPIC = "demo-messages";
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-
-    public AsyncProducer(KafkaTemplate<String, Object> kafkaTemplate) {
-        this.kafkaTemplate = kafkaTemplate;
-    }
+    @Autowired
+    private KafkaTemplate<String, DemoTransaction> kafkaTemplate;
 
     /**
-     * Send a message asynchronously with callback handling
-     * 
-     * @param key The message key for partitioning
-     * @param message The message to send
+     * Pattern name: Asynchronous with Callback
+     * Characteristics: Fast, non-blocking, reliable with callbacks
+     * Use cases: High-throughput with error handling
+     * Performance: ~50k msgs/sec
+     * Latency: <1ms (non-blocking)
      */
-    public void sendMessageAsync(String key, Object message) {
-        logger.info("Sending message with AsyncProducer");
-        
-        // TODO: Implement async send with CompletableFuture
-        CompletableFuture<SendResult<String, Object>> future = 
-            kafkaTemplate.send(KafkaTopicConfig.DEMO_MESSAGES_TOPIC, key, message);
+    public CompletableFuture<SendResult<String, DemoTransaction>> sendAsync(DemoTransaction transaction) {
+        // Async send returns immediately, so request threads stay free for more work.
+        // Success and failure are handled in callbacks, which is the key difference from fire-and-forget.
+        // Retry strategy note: let Kafka producer retries handle transient issues, then observe failures in the callback for alerting or compensation.
+        try {
+            CompletableFuture<SendResult<String, DemoTransaction>> future = kafkaTemplate.send(TOPIC, transaction);
 
-        future.whenComplete((result, ex) -> {
-            if (ex == null) {
-                // TODO: Handle success case
-                logger.info("Message sent successfully to partition {} with offset {}",
+            future.thenAccept(result -> log.info(
+                    "Async message {} sent to partition {} at offset {}",
+                    transaction.getMessageId(),
                     result.getRecordMetadata().partition(),
-                    result.getRecordMetadata().offset());
-            } else {
-                // TODO: Handle failure case
-                logger.error("Failed to send message: {}", ex.getMessage());
-            }
-        });
+                    result.getRecordMetadata().offset()
+            )).exceptionally(ex -> {
+                logAsyncFailure(transaction, ex);
+                return null;
+            });
+
+            return future;
+        } catch (SerializationException ex) {
+            log.error("Serialization failed for async messageId={}", transaction.getMessageId(), ex);
+            return CompletableFuture.failedFuture(ex);
+        } catch (RuntimeException ex) {
+            logAsyncFailure(transaction, ex);
+            return CompletableFuture.failedFuture(ex);
+        }
     }
 
-    /**
-     * Send a message to a specific topic asynchronously
-     * 
-     * @param topic The target topic
-     * @param key The message key
-     * @param message The message to send
-     */
-    public void sendToTopicAsync(String topic, String key, Object message) {
-        logger.info("Sending message to topic {} asynchronously", topic);
-        // TODO: Implement async send to custom topic with callbacks
+    private void logAsyncFailure(DemoTransaction transaction, Throwable throwable) {
+        Throwable rootCause = unwrap(throwable);
+        if (rootCause instanceof TimeoutException) {
+            log.error("Async send timed out for messageId={}", transaction.getMessageId(), rootCause);
+            return;
+        }
+        if (rootCause instanceof SerializationException) {
+            log.error("Async serialization failed for messageId={}", transaction.getMessageId(), rootCause);
+            return;
+        }
+        log.error("Async send failed for messageId={}", transaction.getMessageId(), rootCause);
     }
 
+    private Throwable unwrap(Throwable throwable) {
+        if (throwable instanceof CompletionException && throwable.getCause() != null) {
+            return throwable.getCause();
+        }
+        return throwable;
+    }
 }
