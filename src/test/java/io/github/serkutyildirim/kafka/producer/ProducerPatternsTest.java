@@ -2,6 +2,8 @@ package io.github.serkutyildirim.kafka.producer;
 
 import io.github.serkutyildirim.kafka.model.DemoTransaction;
 import io.github.serkutyildirim.kafka.model.MessageStatus;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.SerializationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.KafkaOperations;
@@ -23,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +51,8 @@ class ProducerPatternsTest {
         KafkaTemplate<String, DemoTransaction> kafkaTemplate = mock(KafkaTemplate.class);
         @SuppressWarnings("unchecked")
         SendResult<String, DemoTransaction> sendResult = mock(SendResult.class);
+        RecordMetadata metadata = new RecordMetadata(new TopicPartition("demo-messages", 1), 0, 42, 0L, 0, 0);
+        when(sendResult.getRecordMetadata()).thenReturn(metadata);
         CompletableFuture<SendResult<String, DemoTransaction>> future = CompletableFuture.completedFuture(sendResult);
         when(kafkaTemplate.send(anyString(), any(DemoTransaction.class))).thenReturn(future);
 
@@ -109,7 +114,7 @@ class ProducerPatternsTest {
 
         assertTrue(committed);
         verify(kafkaTemplate).executeInTransaction(any());
-        verify(operations).send(eq("demo-messages"), anyString(), any(DemoTransaction.class));
+        verify(operations, times(2)).send(eq("demo-messages"), anyString(), any(DemoTransaction.class));
     }
 
     @Test
@@ -129,4 +134,3 @@ class ProducerPatternsTest {
                 .build();
     }
 }
-
