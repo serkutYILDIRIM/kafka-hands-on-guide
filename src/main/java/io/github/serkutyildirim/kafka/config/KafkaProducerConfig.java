@@ -1,5 +1,6 @@
 package io.github.serkutyildirim.kafka.config;
 
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -62,6 +63,19 @@ public class KafkaProducerConfig {
 
     @Value("${app.kafka.transaction-id-prefix:kafka-demo-tx-}")
     private String transactionIdPrefix;
+
+    @Bean(name = "demoTransactionProducerFactory")
+    public ProducerFactory<String, DemoTransaction> demoTransactionProducerFactory() {
+        Map<String, Object> configs = standardProducerConfigs();
+        log.info("Creating DemoTransaction producer factory for DLQ and typed consumer flows");
+        return new DefaultKafkaProducerFactory<>(configs);
+    }
+
+    @Bean(name = "demoTransactionKafkaTemplate")
+    public KafkaTemplate<String, DemoTransaction> demoTransactionKafkaTemplate() {
+        log.info("Creating typed KafkaTemplate bean for DemoTransaction payloads");
+        return new KafkaTemplate<>(demoTransactionProducerFactory());
+    }
 
     @Bean
     @Primary
