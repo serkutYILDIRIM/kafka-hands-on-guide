@@ -1,110 +1,120 @@
 package io.github.serkutyildirim.kafka.consumer;
 
 import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.stereotype.Component;
 
 /**
- * Grouped Kafka consumer implementation.
- * 
- * Demonstrates consumer group concepts with:
- * - Multiple consumers in the same group (load balancing)
- * - Multiple consumers in different groups (pub-sub pattern)
- * - Partition rebalancing
- * - Consumer group coordination
- * 
- * TODO: Implement multiple consumer instances simulation
- * TODO: Add partition assignment logging
- * TODO: Add rebalance listener
- * TODO: Document consumer group behavior
- * 
- * @author Serkut Yıldırım
+ * Consumer groups enable parallel processing because Kafka assigns each partition to exactly ONE consumer inside the same group.
+ * Multiple groups can still consume the same topic independently, so one group can handle business processing while another powers analytics or audit trails.
+ * Rebalancing happens when consumers join, leave, crash, deploy, or stop heartbeating; during that window Kafka pauses, redistributes partitions, and then consumption resumes.
+ * Partition assignment strategies decide which member gets which partition after each rebalance, so the observed load split depends on partition count and active group members.
+ * Testing tip: run multiple application instances against the same topic to observe partition distribution, current vs committed offsets, and group rebalancing behavior in practice.
  */
 @Component
+@Slf4j
 public class GroupedConsumer {
 
-    private static final Logger logger = LoggerFactory.getLogger(GroupedConsumer.class);
+    private static final String GROUP_ID = "grouped-consumer-1";
 
     /**
-     * Consumer instance 1 in group-a
-     * When running multiple application instances, partitions will be distributed
-     * 
-     * @param message The consumed message
-     * @param partition The partition from which message was consumed
-     * @param offset The offset of the message
+     * Pattern name: Grouped Consumer Example.
+     * Characteristics: Same processing style as the simple consumer, but with a different group ID and therefore independent offsets and partition ownership.
+     * Delivery guarantee: Matches the underlying auto-commit style, which is simple but less recovery-safe than manual acknowledgment.
+     * Use cases: Demonstrating consumer group mechanics, partition sharing, and rebalance behavior.
      */
     @KafkaListener(
-        topics = KafkaTopicConfig.DEMO_TRANSACTIONS_TOPIC,
-        groupId = "grouped-consumer-group-a",
-        containerFactory = "kafkaListenerContainerFactory",
-        id = "consumer-a-1"
+        topics = KafkaTopicConfig.DEMO_MESSAGES_TOPIC,
+        groupId = GROUP_ID,
+        containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consumeGroupA1(
-            @Payload Object message,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset) {
-        
-        logger.info("[GroupA-Consumer1] Received message from partition {} at offset {}", partition, offset);
-        // TODO: Add processing logic
-        logger.debug("[GroupA-Consumer1] Processing: {}", message);
+    public void consume(ConsumerRecord<String, DemoTransaction> record) {
+        long startTime = System.nanoTime();
+        String memberId = currentMemberId();
+
+        try {
+            DemoTransaction message = requirePayload(record);
+
+            log.info("Consumed message: {} from partition: {} at offset: {}", message, record.partition(), record.offset());
+            log.info("event=consume_start pattern=grouped groupId={} memberId={} topic={} partition={} offset={} key={} messageId={}",
+                GROUP_ID,
+                memberId,
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                record.key(),
+                message.getMessageId());
+            log.info("event=message_details pattern=grouped groupId={} memberId={} sourceId={} targetId={} amount={}",
+                GROUP_ID,
+                memberId,
+                message.getSourceId(),
+                message.getTargetId(),
+                message.getAmount());
+
+            // Partition assignment strategies decide which consumer gets which partition during a rebalance.
+            // In a single group, each partition is owned by only one active member, which is why partition count limits parallelism.
+            // With auto-commit, the committed offset may advance independently from the record currently being processed.
+            Thread.sleep(100);
+
+            // Exercise:
+            // 1) Run the app in two terminals with different ports.
+            // 2) Send 10 messages to demo-messages.
+            // 3) Observe how messages split between consumers in the same group.
+            // 4) Stop one instance.
+            // 5) Observe rebalancing: the remaining consumer takes over all partitions.
+            log.info("event=consume_success pattern=grouped groupId={} memberId={} partition={} offset={} durationMs={} processingResult=processed",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                elapsedMillis(startTime));
+        } catch (DeserializationException ex) {
+            log.error("event=consume_failure pattern=grouped groupId={} memberId={} partition={} offset={} durationMs={} errorType=deserialization error={}",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                elapsedMillis(startTime),
+                ex.getMessage(),
+                ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("event=consume_failure pattern=grouped groupId={} memberId={} partition={} offset={} durationMs={} errorType=interrupted error={}",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                elapsedMillis(startTime),
+                ex.getMessage(),
+                ex);
+        } catch (Exception ex) {
+            log.error("event=consume_failure pattern=grouped groupId={} memberId={} partition={} offset={} durationMs={} errorType=business error={}",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                elapsedMillis(startTime),
+                ex.getMessage(),
+                ex);
+        }
     }
 
-    /**
-     * Consumer instance 2 in group-a (same group as above)
-     * Will receive different partitions than consumer-a-1
-     * 
-     * @param message The consumed message
-     * @param partition The partition from which message was consumed
-     * @param offset The offset of the message
-     */
-    @KafkaListener(
-        topics = KafkaTopicConfig.DEMO_TRANSACTIONS_TOPIC,
-        groupId = "grouped-consumer-group-a",
-        containerFactory = "kafkaListenerContainerFactory",
-        id = "consumer-a-2"
-    )
-    public void consumeGroupA2(
-            @Payload Object message,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset) {
-        
-        logger.info("[GroupA-Consumer2] Received message from partition {} at offset {}", partition, offset);
-        // TODO: Add processing logic
-        logger.debug("[GroupA-Consumer2] Processing: {}", message);
+    private DemoTransaction requirePayload(ConsumerRecord<String, DemoTransaction> record) {
+        if (record == null || record.value() == null) {
+            throw new IllegalArgumentException("Grouped consumer received a null payload. Compare current position with committed offsets when debugging repeated poison-pill scenarios.");
+        }
+        return record.value();
     }
 
-    /**
-     * Consumer in group-b (different group)
-     * Will receive ALL messages (different offset tracking)
-     * Demonstrates pub-sub pattern when multiple groups listen to same topic
-     * 
-     * @param message The consumed message
-     * @param partition The partition from which message was consumed
-     * @param offset The offset of the message
-     */
-    @KafkaListener(
-        topics = KafkaTopicConfig.DEMO_TRANSACTIONS_TOPIC,
-        groupId = "grouped-consumer-group-b",
-        containerFactory = "kafkaListenerContainerFactory",
-        id = "consumer-b-1"
-    )
-    public void consumeGroupB1(
-            @Payload Object message,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset) {
-        
-        logger.info("[GroupB-Consumer1] Received message from partition {} at offset {}", partition, offset);
-        // TODO: Add different processing logic for group B
-        logger.debug("[GroupB-Consumer1] Processing: {}", message);
+    private String currentMemberId() {
+        return Thread.currentThread().getName();
     }
 
-    // TODO: Add ConsumerRebalanceListener to track partition assignment changes
-    // TODO: Add method to log current partition assignments
-    // TODO: Document how to run multiple instances to see load balancing
-
+    private long elapsedMillis(long startTime) {
+        return Math.max(1L, (System.nanoTime() - startTime) / 1_000_000L);
+    }
 }

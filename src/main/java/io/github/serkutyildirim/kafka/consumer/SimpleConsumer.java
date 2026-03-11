@@ -2,30 +2,32 @@ package io.github.serkutyildirim.kafka.consumer;
 
 import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
 import io.github.serkutyildirim.kafka.model.DemoTransaction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.stereotype.Component;
 
 /**
  * Simple Kafka consumer implementation.
- * 
+ *
  * Demonstrates the most basic way to consume messages from Kafka:
  * - Auto-commit offset mode
  * - Single message processing
  * - Basic error handling
  * - Suitable for simple use cases
- * 
+ *
  * TODO: Add message processing logic
  * TODO: Add error handling
  * TODO: Add message validation
- * 
+ *
  * @author Serkut Yıldırım
  */
 @Component
+@Slf4j
 public class SimpleConsumer {
 
-    private static final Logger logger = LoggerFactory.getLogger(SimpleConsumer.class);
+    private static final String GROUP_ID = "simple-consumer-group";
 
     /**
      * Consume messages from demo-messages topic
@@ -36,29 +38,84 @@ public class SimpleConsumer {
      */
     @KafkaListener(
         topics = KafkaTopicConfig.DEMO_MESSAGES_TOPIC,
-        groupId = "simple-consumer-group",
+        groupId = GROUP_ID,
         containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consumeMessage(DemoTransaction message) {
-        logger.info("[SimpleConsumer] Received message: ID={}, Source={}, Target={}, Amount={}",
-            message.getMessageId(),
-            message.getSourceId(),
-            message.getTargetId(),
-            message.getAmount());
-        
-        // TODO: Add business logic to process the message
-        // TODO: Add validation
-        // TODO: Add error handling
-        
-        logger.debug("[SimpleConsumer] Message processed successfully: {}", message.getMessageId());
+    public void consume(ConsumerRecord<String, DemoTransaction> record) {
+        long startTime = System.nanoTime();
+        String memberId = currentMemberId();
+
+        try {
+            DemoTransaction message = requirePayload(record);
+
+            log.info("event=consume_start pattern=simple groupId={} memberId={} topic={} partition={} offset={} key={} messageId={}",
+                GROUP_ID,
+                memberId,
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                record.key(),
+                message.getMessageId());
+            log.info("event=message_details pattern=simple groupId={} memberId={} sourceId={} targetId={} amount={}",
+                GROUP_ID,
+                memberId,
+                message.getSourceId(),
+                message.getTargetId(),
+                message.getAmount());
+
+            // Auto-commit keeps the code minimal because the container commits offsets in the background.
+            // The trade-off is recovery precision: a crash after poll/commit but before durable processing can lose the record.
+            Thread.sleep(100);
+
+            long durationMs = elapsedMillis(startTime);
+            log.info("event=consume_success pattern=simple groupId={} memberId={} partition={} offset={} durationMs={} processingResult=processed",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                durationMs);
+        } catch (DeserializationException ex) {
+            log.error("event=consume_failure pattern=simple groupId={} memberId={} partition={} offset={} errorType=deserialization error={} ",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                ex.getMessage(),
+                ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("event=consume_failure pattern=simple groupId={} memberId={} partition={} offset={} errorType=interrupted error={}",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                ex.getMessage(),
+                ex);
+        } catch (Exception ex) {
+            log.error("event=consume_failure pattern=simple groupId={} memberId={} partition={} offset={} errorType=business error={}",
+                GROUP_ID,
+                memberId,
+                record.partition(),
+                record.offset(),
+                ex.getMessage(),
+                ex);
+        }
     }
 
-    /**
-     * Consume notification messages
-     * 
-     * @param message The consumed notification
-     */
-    // TODO: Add listener for demo-notifications topic
-    // TODO: Use different consumer group
+    private DemoTransaction requirePayload(ConsumerRecord<String, DemoTransaction> record) {
+        if (record == null || record.value() == null) {
+            throw new IllegalArgumentException("DemoTransaction payload is null. This often means deserialization failed before the listener could process a valid object.");
+        }
+        return record.value();
+    }
 
+    private String currentMemberId() {
+        // The exact low-level member ID is managed by the Kafka client and is not directly passed in this minimal listener signature.
+        // For teaching logs we surface the listener thread, which still helps correlate partition assignment and rebalance activity.
+        return Thread.currentThread().getName();
+    }
+
+    private long elapsedMillis(long startTime) {
+        return Math.max(1L, (System.nanoTime() - startTime) / 1_000_000L);
+    }
 }

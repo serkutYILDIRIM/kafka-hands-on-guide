@@ -107,12 +107,12 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConsumerFactory<String, DemoTransaction> batchConsumerFactory() {
-        Map<String, Object> configs = baseConsumerConfigs("batch-consumer-group", true);
+        Map<String, Object> configs = baseConsumerConfigs("batch-consumer-group", false);
         // max.poll.records limits how many records one poll returns.
         // 100 is a modest batch size that improves throughput without creating very large in-memory batches.
         // Larger batches reduce overhead but also increase per-batch failure impact and end-to-end latency.
         configs.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100);
-        log.info("Creating batch consumer factory for group batch-consumer-group with maxPollRecords=100");
+        log.info("Creating batch consumer factory for group batch-consumer-group with maxPollRecords=100 and autoCommit=false");
         return new DefaultKafkaConsumerFactory<>(configs);
     }
 
@@ -123,10 +123,13 @@ public class KafkaConsumerConfig {
         // Batch listeners reduce listener invocation overhead and can improve throughput for high-volume topics.
         // The main trade-off is higher latency because records may wait to accumulate into a batch.
         // Batch failures are also harder because one bad record can affect how the entire batch is retried.
+        // AckMode.BATCH commits offsets only after the listener method returns successfully,
+        // which gives this demo the requested all-or-nothing retry behavior without manual acknowledgments.
         factory.setBatchListener(true);
+        factory.getContainerProperties().setAckMode(AckMode.BATCH);
         // Concurrency 2 is intentional here: fewer concurrent batch workers can reduce resource spikes while still improving throughput.
         factory.setConcurrency(2);
-        log.info("Creating batch listener container factory with batch mode enabled and concurrency=2");
+        log.info("Creating batch listener container factory with batch mode enabled, AckMode.BATCH, autoCommit=false and concurrency=2");
         return factory;
     }
 
@@ -192,6 +195,6 @@ public class KafkaConsumerConfig {
     @PostConstruct
     public void logConsumerConfigurationSummary() {
         log.info("Kafka consumer summary -> bootstrapServers={}, defaultGroup=demo-consumer-group, autoOffsetReset=earliest, sessionTimeoutMs=10000, heartbeatIntervalMs=3000", bootstrapServers);
-        log.debug("Additional consumer modes -> manualAckGroup=manual-ack-group (autoCommit=false, AckMode.MANUAL), batchGroup=batch-consumer-group (maxPollRecords=100, concurrency=2)");
+        log.debug("Additional consumer modes -> manualAckGroup=manual-ack-group (autoCommit=false, AckMode.MANUAL), batchGroup=batch-consumer-group (autoCommit=false, AckMode.BATCH, maxPollRecords=100, concurrency=2)");
     }
 }

@@ -1,101 +1,142 @@
 package io.github.serkutyildirim.kafka.consumer;
 
 import io.github.serkutyildirim.kafka.config.KafkaTopicConfig;
+import io.github.serkutyildirim.kafka.model.DemoTransaction;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Batch Kafka consumer implementation.
- * 
- * Demonstrates batch message consumption with:
- * - Processing multiple messages at once
- * - Improved throughput for high-volume scenarios
- * - Batch acknowledgment
- * - Efficient database operations (batch insert/update)
- * 
- * TODO: Implement batch processing logic
- * TODO: Add batch size configuration
- * TODO: Add batch validation
- * TODO: Implement partial batch failure handling
- * 
- * @author Serkut Yıldırım
+ *
+ * <p>Batch consumption improves throughput by amortizing listener invocation cost, serialization overhead, and downstream I/O across multiple records.</p>
  */
 @Component
+@Slf4j
 public class BatchConsumer {
 
-    private static final Logger logger = LoggerFactory.getLogger(BatchConsumer.class);
+    private static final String GROUP_ID = "batch-consumer-group";
+    private static final int SUB_BATCH_SIZE = 25;
 
     /**
-     * Consume messages in batches from notification topic
-     * Processes multiple messages at once for better performance
-     * 
-     * @param records List of ConsumerRecord containing messages with metadata
-     * @param acknowledgment The acknowledgment callback
+     * Pattern name: Batch Consumer.
+     * Characteristics: Processes multiple messages at once.
+     * Performance: Higher throughput and better resource utilization because one callback can handle many records.
+     * Use cases: Bulk inserts, aggregation, analytics, compaction-style workloads, and warehouse ingestion.
+     * Trade-off: Higher latency, trickier partial-failure handling, and more careful batch-size tuning.
      */
     @KafkaListener(
-        topics = KafkaTopicConfig.DEMO_NOTIFICATIONS_TOPIC,
-        groupId = "batch-consumer-group",
-        containerFactory = "batchListenerContainerFactory",
-        batch = "true"
+        topics = KafkaTopicConfig.DEMO_MESSAGES_TOPIC,
+        groupId = GROUP_ID,
+        containerFactory = "batchListenerContainerFactory"
     )
-    public void consumeBatch(
-            List<ConsumerRecord<String, Object>> records,
-            Acknowledgment acknowledgment) {
+    public void consumeBatch(List<ConsumerRecord<String, DemoTransaction>> records) {
+        long startTime = System.nanoTime();
+        String memberId = currentMemberId();
 
-        logger.info("[BatchConsumer] Received batch of {} messages", records.size());
+        log.info("Received batch of {} messages", records.size());
+        log.info("event=batch_receive pattern=batch groupId={} memberId={} batchSize={}", GROUP_ID, memberId, records.size());
 
         try {
-            // TODO: Add batch processing logic
-            for (int i = 0; i < records.size(); i++) {
-                ConsumerRecord<String, Object> record = records.get(i);
-                Object message = record.value();
-                int partition = record.partition();
-                long offset = record.offset();
+            List<DemoTransaction> messages = new ArrayList<>(records.size());
 
-                logger.debug("[BatchConsumer] Processing message {} from partition {} at offset {}",i + 1, partition, offset);
-                
-                // Process individual message
-                // processMessage(message);
+            for (ConsumerRecord<String, DemoTransaction> record : records) {
+                DemoTransaction message = requirePayload(record);
+                messages.add(message);
+
+                log.info("event=batch_record pattern=batch groupId={} memberId={} partition={} offset={} key={} messageId={} sourceId={} targetId={} amount={}",
+                    GROUP_ID,
+                    memberId,
+                    record.partition(),
+                    record.offset(),
+                    record.key(),
+                    message.getMessageId(),
+                    message.getSourceId(),
+                    message.getTargetId(),
+                    message.getAmount());
             }
-            
-            // TODO: Perform batch operation (e.g., bulk database insert)
-                 // bulkInsertToDatabase(messages);
 
-            // Acknowledge entire batch after successful processing
-            if (acknowledgment != null) {
-                acknowledgment.acknowledge();
+            // Batch processing reduces per-record overhead such as network calls and database roundtrips.
+            // In real systems this is where you'd replace N single-row writes with one bulk insert/update.
+            // Tune the batch size carefully: too small wastes throughput, too large increases memory pressure and retry blast radius.
+            processInSubBatches(messages, SUB_BATCH_SIZE);
 
-                logger.info("[BatchConsumer] Batch acknowledged successfully");
-            }
-            
-        } catch (Exception e) {
-            logger.error("[BatchConsumer] Error processing batch: {}", e.getMessage());
-
-            // TODO: Implement batch error handling
-
-            // Option 1: Don't acknowledge (entire batch will be reprocessed)
-            // Option 2: Process messages individually to identify failing ones
-            // Option 3: Send entire batch to DLQ
+            long durationMs = elapsedMillis(startTime);
+            double throughput = calculateThroughput(records.size(), durationMs);
+            log.info("event=batch_success pattern=batch groupId={} memberId={} batchSize={} durationMs={} throughputMessagesPerSecond={} status=processed",
+                GROUP_ID,
+                memberId,
+                records.size(),
+                durationMs,
+                String.format(java.util.Locale.US, "%.2f", throughput));
+        } catch (DeserializationException ex) {
+            log.error("event=batch_failure pattern=batch groupId={} memberId={} batchSize={} durationMs={} errorType=deserialization error={}",
+                GROUP_ID,
+                memberId,
+                records.size(),
+                elapsedMillis(startTime),
+                ex.getMessage(),
+                ex);
+            throw ex;
+        } catch (RuntimeException ex) {
+            // Partial failures are the hard part of batch listeners.
+            // This example intentionally uses all-or-nothing semantics: one bad record fails the entire batch so Kafka retries the full batch.
+            // That is simple to reason about, but the trade-off is duplicate work when only one record in the batch is bad.
+            log.error("event=batch_failure pattern=batch groupId={} memberId={} batchSize={} durationMs={} errorType=business error={}",
+                GROUP_ID,
+                memberId,
+                records.size(),
+                elapsedMillis(startTime),
+                ex.getMessage(),
+                ex);
+            throw ex;
         }
     }
 
-    /**
-     * Process messages in smaller sub-batches
-     * Useful when full batch size is too large to process at once
-     * 
-     * @param messages List of messages to process
-     * @param batchSize Size of sub-batches
-     */
-    private void processInSubBatches(List<Object> messages, int batchSize) {
-        // TODO: Implement sub-batch processing logic
+    private void processInSubBatches(List<DemoTransaction> messages, int batchSize) {
+        for (int fromIndex = 0; fromIndex < messages.size(); fromIndex += batchSize) {
+            int toIndex = Math.min(fromIndex + batchSize, messages.size());
+            List<DemoTransaction> subBatch = messages.subList(fromIndex, toIndex);
 
-        logger.debug("Processing {} messages in sub-batches of {}", messages.size(), batchSize);
+            if (subBatch.stream().anyMatch(this::shouldFailBatch)) {
+                throw new IllegalStateException("Simulated batch failure to demonstrate whole-batch retry semantics");
+            }
+
+            // Sub-batches are a practical compromise when the broker poll size is larger than what the database can handle efficiently.
+            try {
+                Thread.sleep(Math.min(40L * subBatch.size(), 200L));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Batch processing interrupted", ex);
+            }
+        }
     }
 
+    private boolean shouldFailBatch(DemoTransaction transaction) {
+        return transaction.getDescription() != null && transaction.getDescription().toUpperCase().contains("FAIL_BATCH");
+    }
+
+    private DemoTransaction requirePayload(ConsumerRecord<String, DemoTransaction> record) {
+        if (record == null || record.value() == null) {
+            throw new IllegalArgumentException("Batch payload is null. Null values usually indicate malformed input or deserialization problems that should fail the full batch.");
+        }
+        return record.value();
+    }
+
+    private double calculateThroughput(int messageCount, long durationMs) {
+        return messageCount * 1000.0 / Math.max(durationMs, 1L);
+    }
+
+    private String currentMemberId() {
+        return Thread.currentThread().getName();
+    }
+
+    private long elapsedMillis(long startTime) {
+        return Math.max(1L, (System.nanoTime() - startTime) / 1_000_000L);
+    }
 }
